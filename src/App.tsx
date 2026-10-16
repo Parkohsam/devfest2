@@ -37,6 +37,7 @@ import { TaskFilterBar } from './components/TaskFilterBar';
 import { TaskItem } from './components/TaskItem';
 import { TaskEditModal } from './components/TaskEditModal';
 import { TenantSecurityModal } from './components/TenantSecurityModal';
+import { UnauthorizedDomainModal } from './components/UnauthorizedDomainModal';
 import {
   AlertCircle,
   Download,
@@ -64,6 +65,7 @@ export default function App() {
   // Modals & Active Edit
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [isDomainModalOpen, setIsDomainModalOpen] = useState(false);
 
   // Status & Feedback toasts
   const [actionLoading, setActionLoading] = useState(false);
@@ -142,10 +144,19 @@ export default function App() {
       showToast('Successfully signed in with Google!', 'success');
     } catch (error) {
       console.error('Sign in failed:', error);
-      showToast(
-        error instanceof Error ? error.message : 'Google Sign-in failed',
-        'error'
-      );
+      const isUnauthorizedDomain =
+        (typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'auth/unauthorized-domain') ||
+        (error instanceof Error && error.message.includes('auth/unauthorized-domain'));
+
+      if (isUnauthorizedDomain) {
+        setIsDomainModalOpen(true);
+        showToast('Domain not authorized in Firebase Console yet. Follow the popup steps.', 'error');
+      } else {
+        showToast(
+          error instanceof Error ? error.message : 'Google Sign-in failed',
+          'error'
+        );
+      }
     } finally {
       setActionLoading(false);
     }
@@ -526,6 +537,12 @@ export default function App() {
         isOpen={isSecurityModalOpen}
         onClose={() => setIsSecurityModalOpen(false)}
         user={user}
+      />
+
+      {/* Unauthorized Domain Helper Modal */}
+      <UnauthorizedDomainModal
+        isOpen={isDomainModalOpen}
+        onClose={() => setIsDomainModalOpen(false)}
       />
     </div>
   );
