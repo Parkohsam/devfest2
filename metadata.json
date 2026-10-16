@@ -1,0 +1,6 @@
+{
+  "name": "TaskFlow - Secure Collaborative To-Do",
+  "description": "A secure, real-time to-do list application powered by Firebase and Google Authentication with strict user-isolated task storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

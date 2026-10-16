@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny all unmapped paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Health / connection test doc
+    match /test/{docId} {
+      allow get: if true;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Profile Validation
+    function isValidUserProfile(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
+        && data.uid == uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 100
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Task Validation Blueprint
+    function isValidTask(data, uid) {
+      return data.keys().hasAll(['id', 'title', 'completed', 'priority', 'category', 'userId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'title', 'description', 'completed', 'priority', 'category', 'dueDate', 'userId', 'createdAt', 'updatedAt'])
+        && data.id is string && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && (!('description' in data) || (data.description is string && data.description.size() <= 2000))
+        && data.completed is bool
+        && data.priority in ['low', 'medium', 'high', 'urgent']
+        && data.category in ['work', 'personal', 'shopping', 'health', 'finance', 'general']
+        && (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 50))
+        && data.userId == uid
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // User profiles collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false; // Blanket user listing forbidden
+
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+
+      allow delete: if false; // User accounts are preserved
+
+      // Tasks subcollection - Isolated exclusively to the owning user
+      match /tasks/{taskId} {
+        allow get: if isOwner(userId) && isValidId(taskId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && isValidId(taskId)
+          && taskId == incoming().id
+          && isValidTask(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isOwner(userId)
+          && isValidId(taskId)
+          && isValidTask(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action 1: Toggle status
+            incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt'])
+            // Action 2: Edit task fields without toggle
+            || incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'priority', 'category', 'dueDate', 'updatedAt'])
+            // Action 3: Full edit including status
+            || incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'completed', 'priority', 'category', 'dueDate', 'updatedAt'])
+          );
+
+        allow delete: if isOwner(userId) && isValidId(taskId);
+      }
+    }
+  }
+}
